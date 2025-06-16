@@ -8,3 +8,4 @@ tiktoken
 pypdf
 python-docx
 langchain-community
+langchain-google-genai
