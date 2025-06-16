@@ -29,12 +29,25 @@ def root():
 
 @app.post("/preguntar")
 def responder(query: Query):
-    prompt = f"""
-    Eres CLIpi, un experto en comercio exterior, aduanas y logística.
-    Responde con base en los documentos cargados y tu conocimiento del área.
+    question = query.question
 
-    Pregunta: {query.question}
+    # Cargar index de vectores
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GEMINI_API_KEY)
+    vectordb = Chroma(persist_directory="embeddings", embedding_function=embeddings)
+
+    # Recuperar contexto
+    docs = vectordb.similarity_search(question, k=3)
+    context = "\n\n".join([d.page_content for d in docs])
+
+    prompt = f"""
+    Eres CLIpi, un asistente experto en comercio exterior, aduanas y logística.
+    Usa el siguiente contexto para responder la pregunta:
+
+    {context}
+
+    Pregunta: {question}
     """
+
     response = requests.post(GEMINI_API_URL, json={
         "contents": [{"parts": [{"text": prompt}]}]
     })
@@ -44,6 +57,7 @@ def responder(query: Query):
         return {"respuesta": result["candidates"][0]["content"]["parts"][0]["text"]}
     else:
         return {"error": response.text}
+
 from langchain.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain.embeddings import GoogleGenerativeAIEmbeddings
 from langchain.vectorstores import Chroma
