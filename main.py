@@ -44,3 +44,44 @@ def responder(query: Query):
         return {"respuesta": result["candidates"][0]["content"]["parts"][0]["text"]}
     else:
         return {"error": response.text}
+from langchain.document_loaders import PyPDFLoader, Docx2txtLoader
+from langchain.embeddings import GoogleGenerativeAIEmbeddings
+from langchain.vectorstores import Chroma
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from typing import List
+import shutil
+import tempfile
+import urllib.request
+
+# Nueva ruta para incrustar documentos (solo lo haces 1 vez por documento)
+@app.post("/cargar_documentos")
+def cargar_docs(urls: List[str]):
+    documents = []
+
+    for url in urls:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+            urllib.request.urlretrieve(url, tmp_path)
+
+            if url.endswith(".pdf"):
+                loader = PyPDFLoader(tmp_path)
+            elif url.endswith(".docx"):
+                loader = Docx2txtLoader(tmp_path)
+            else:
+                continue
+
+            docs = loader.load()
+            documents.extend(docs)
+
+    # Divide los textos largos en fragmentos
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    chunks = splitter.split_documents(documents)
+
+    # Crear embeddings
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GEMINI_API_KEY)
+
+    # Guardar vectorstore
+    vectordb = Chroma.from_documents(chunks, embeddings, persist_directory="embeddings")
+    vectordb.persist()
+
+    return {"status": "Documentos cargados y embebidos"}
