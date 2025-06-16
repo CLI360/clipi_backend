@@ -7,3 +7,4 @@ chromadb
 tiktoken
 pypdf
 python-docx
+langchain-community
