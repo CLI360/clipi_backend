@@ -58,44 +58,43 @@ def responder(query: Query):
     else:
         return {"error": response.text}
 
-from langchain.document_loaders import PyPDFLoader, Docx2txtLoader
+from langchain.document_loaders import UnstructuredPDFLoader, UnstructuredWordDocumentLoader
+from langchain.text_splitter import CharacterTextSplitter
 from langchain.embeddings import GoogleGenerativeAIEmbeddings
 from langchain.vectorstores import Chroma
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from typing import List
-import shutil
 import tempfile
-import urllib.request
 
-# Nueva ruta para incrustar documentos (solo lo haces 1 vez por documento)
 @app.post("/cargar_documentos")
-def cargar_docs(urls: List[str]):
-    documents = []
-
-    for url in urls:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
-            tmp_path = tmp_file.name
-            urllib.request.urlretrieve(url, tmp_path)
-
-            if url.endswith(".pdf"):
-                loader = PyPDFLoader(tmp_path)
-            elif url.endswith(".docx"):
-                loader = Docx2txtLoader(tmp_path)
-            else:
-                continue
-
-            docs = loader.load()
-            documents.extend(docs)
-
-    # Divide los textos largos en fragmentos
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    chunks = splitter.split_documents(documents)
-
-    # Crear embeddings
+def cargar_documentos(urls: list[str]):
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001", google_api_key=GEMINI_API_KEY)
 
-    # Guardar vectorstore
-    vectordb = Chroma.from_documents(chunks, embeddings, persist_directory="embeddings")
-    vectordb.persist()
+    all_docs = []
 
-    return {"status": "Documentos cargados y embebidos"}
+    for url in urls:
+        try:
+            response = requests.get(url)
+            if response.status_code == 200:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+                    tmp_file.write(response.content)
+                    tmp_file_path = tmp_file.name
+
+                if url.endswith(".pdf"):
+                    loader = UnstructuredPDFLoader(tmp_file_path)
+                elif url.endswith(".docx"):
+                    loader = UnstructuredWordDocumentLoader(tmp_file_path)
+                else:
+                    continue  # Ignora formatos no compatibles
+
+                docs = loader.load()
+                text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                chunks = text_splitter.split_documents(docs)
+                all_docs.extend(chunks)
+        except Exception as e:
+            print(f"Error al procesar {url}: {e}")
+
+    if all_docs:
+        vectordb = Chroma.from_documents(documents=all_docs, embedding=embeddings, persist_directory="embeddings")
+        vectordb.persist()
+        return {"mensaje": "Documentos cargados correctamente", "total_chunks": len(all_docs)}
+    else:
+        return {"mensaje": "No se pudo cargar ningún documento"}
